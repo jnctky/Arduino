@@ -2,23 +2,19 @@
 #include <pt.h>   // include protothread library
 #include <Servo.h>
 
-#include "CJUltrasonicSensor.h"
-
 #define LEDPIN 13  // LEDPIN is a constant 
 
 static struct pt pt1, pt2; // each protothread needs one of these
-static CJUltrasonicSensor mDistanceSensorLeft, mDistanceSensorRight, mDistanceSensorMid;
 
 static Servo myservo;
-//static int inputPin = 12; //  定义超声波信号接收接口
-//static int outputPin = 13; //  定义超声波信号发出接口
+static int inputPin = 12; //  定义超声波信号接收接口
+static int outputPin = 13; //  定义超声波信号发出接口
 
 static int angle[13] =
 { 0, 15, 30, 45, 60, 75, 90,
   105, 120, 135, 150, 165, 180
 };
 static int val[13];
-static int valLeft, valRight, valMid;
 static float gear = 1.0;
 static PT_timer servoTimer;
 static PT_timer carTimer;
@@ -35,15 +31,12 @@ void setup() {
   pinMode(6, OUTPUT); //定义I2接口
   pinMode(7, OUTPUT); //定义I1接口
   myservo.write(90); //使舵机转到90度
-
+  pinMode(inputPin, INPUT);
+  pinMode(outputPin, OUTPUT);
 
   pinMode(LEDPIN, OUTPUT); // LED init
   PT_INIT(&pt1);  // initialise the two
   PT_INIT(&pt2);  // protothread variables
-
-  mDistanceSensorMid.setMode(2, 12, 13);
-  mDistanceSensorLeft.setMode(2, 2, 4);
-  //mDistanceSensorRight.setMode(2, 4, 3);
 }
 
 void toggleLED() {
@@ -87,18 +80,15 @@ static int ultrasonic_thread(struct pt *pt) {
       myservo.write(angle[counter]);
       
     } else {
-#if 0 
       //正常测距过程
-      val[counter] = mDistanceSensorMid.GetDistance(); //将超声波读取的距离值赋值给val
+      val[counter] = Ultrasonic(); //将超声波读取的距离值赋值给val
       sprintf(s, "PT1 counter:%d - val[%d]:%d", counter, angle[counter], val[counter]);
       
-     
-      if (val[6] < 9000/*150*/ && initFlag) {
+      if (val[6] < 150 && initFlag) {
         //90正前方1.5米内有障碍时,减速并持续监测正前方
         counter = 6;
       } else {
         //前方还有空间时,设为正常速度并持续监测左右
-
         if (bFlag) {
           //0-180度转向
           if (counter < 12) {
@@ -122,15 +112,8 @@ static int ultrasonic_thread(struct pt *pt) {
         if (bLeftFlag && bRightFlag) {
           initFlag = true;
         }
-     }
-     myservo.write(angle[counter]);
-#else
-    valMid = mDistanceSensorMid.GetDistance(); //将超声波读取的距离值赋值给val
-    valLeft = mDistanceSensorLeft.GetDistance(); //将超声波读取的距离值赋值给val
-    //valRight = mDistanceSensorRight.GetDistance(); //将超声波读取的距离值赋值给val
-    sprintf(s, "PT1 - valMid:%d, valLeft:%d, valRight:%d", valMid, valLeft, valRight);
-    initFlag = true;
-#endif
+      }
+      myservo.write(angle[counter]);
     }
     
     //等待舵机旋转时间
@@ -162,7 +145,7 @@ static int car_thread(struct pt *pt, int interval) {
     Serial.println("PT2");
     //至少等待至前方180度都扫描完毕
     PT_WAIT_UNTIL(pt, initFlag );
-#if 0      
+      
     if (val[6] < 50 || val[5] < 50 || val[7] < 50) {
       //前方(为避免正前方声波无法反射,监测左右15度范围内障碍)有障碍,重新寻路
       Stop();
@@ -172,15 +155,7 @@ static int car_thread(struct pt *pt, int interval) {
       for (i = 0; i <= 5; i++) DistanceRight += val[i];
       DistanceLeft = 0;
       for (i = 7; i <= 12; i++) DistanceLeft += val[i];
-#else
-    if (valMid < 50) {
-      //前方(为避免正前方声波无法反射,监测左右15度范围内障碍)有障碍,重新寻路
-      Stop();
 
-
-      DistanceRight = valRight;
-      DistanceLeft = valLeft;
-#endif
       if (DistanceRight < DistanceLeft) {
         TurnLeft();
         resetFlag = true;
@@ -215,7 +190,19 @@ void loop() {
   car_thread(&pt2, 200); // by calling them infinitely
 }
 
+int Ultrasonic()
+{
+  //Mode2
+  digitalWrite(outputPin, LOW); //使发出发出超声波信号接口低电平2 μs
+  delayMicroseconds(2);
+  digitalWrite(outputPin, HIGH); //使发出发出超声波信号接口高电平10μs ，这里是至少10μs
+  delayMicroseconds(10);
+  digitalWrite(outputPin, LOW);     // 保持发出超声波信号接口低电平
+  int distance = pulseIn(inputPin, HIGH);  //  读出脉冲时间
+  distance = distance / 58; // 将脉冲时间转化为距离（单位：厘米）
 
+  return distance;
+}
 
 void MoveForward()//前进
 {
