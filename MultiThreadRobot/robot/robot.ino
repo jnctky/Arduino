@@ -3,12 +3,19 @@
 #include <Servo.h>
 
 #include "CJUltrasonicSensor.h"
+#include "CJCar.h"
+
+#include <PS2Mouse.h>
+#define MOUSE_DATA 2//5
+#define MOUSE_CLOCK 3//6
+
+PS2Mouse mouse(MOUSE_CLOCK, MOUSE_DATA, STREAM);
 
 #define LEDPIN 13  // LEDPIN is a constant 
 
 static struct pt pt1, pt2; // each protothread needs one of these
 static CJUltrasonicSensor mDistanceSensorLeft, mDistanceSensorRight, mDistanceSensorMid;
-
+static CJCar mCar;
 static Servo myservo;
 //static int inputPin = 12; //  定义超声波信号接收接口
 //static int outputPin = 13; //  定义超声波信号发出接口
@@ -19,15 +26,18 @@ static int angle[13] =
 };
 static int val[13];
 static int valLeft, valRight, valMid;
-static float gear = 1.0;
+
 static PT_timer servoTimer;
 static PT_timer carTimer;
 static bool initFlag = false;
 static bool resetFlag = true;
 
+static int moveX=0;
+static int moveY=0;
+
 void setup() {
   myservo.attach(8); //8号引脚输出舵机控制信号
-  Serial.begin(9600); //仅能使用9、10号引脚
+  Serial.begin(38400); //仅能使用9、10号引脚
   pinMode(9, OUTPUT); //定义I3接口
   pinMode(10, OUTPUT); //定义I4接口
   pinMode(11, OUTPUT); //定义EB(PWM调速)接口
@@ -42,8 +52,10 @@ void setup() {
   PT_INIT(&pt2);  // protothread variables
 
   mDistanceSensorMid.setMode(2, 12, 13);
-  mDistanceSensorLeft.setMode(2, 2, 4);
-  //mDistanceSensorRight.setMode(2, 4, 3);
+  mDistanceSensorLeft.setMode(2, A3, A2);
+  mDistanceSensorRight.setMode(2, 4, 3);
+
+  mouse.initialize();
 }
 
 void toggleLED() {
@@ -127,7 +139,7 @@ static int ultrasonic_thread(struct pt *pt) {
 #else
     valMid = mDistanceSensorMid.GetDistance(); //将超声波读取的距离值赋值给val
     valLeft = mDistanceSensorLeft.GetDistance(); //将超声波读取的距离值赋值给val
-    //valRight = mDistanceSensorRight.GetDistance(); //将超声波读取的距离值赋值给val
+    valRight = mDistanceSensorRight.GetDistance(); //将超声波读取的距离值赋值给val
     sprintf(s, "PT1 - valMid:%d, valLeft:%d, valRight:%d", valMid, valLeft, valRight);
     initFlag = true;
 #endif
@@ -135,11 +147,11 @@ static int ultrasonic_thread(struct pt *pt) {
     
     //等待舵机旋转时间
     iAngle = abs(angle[counter] - lastAngle);
-    interval = max(iAngle * 10 + 5, 160);
+    interval = 20;//max(iAngle * 10 + 5, 160);
     lastAngle = angle[counter];
 
     sprintf(s, "%s / interval:%d / iAngle:%d,", s, interval, iAngle);
-    Serial.println(s);
+    //Serial.println(s);
     servoTimer.setTimer(interval);
     PT_WAIT_UNTIL(pt, servoTimer.Expired());
   }
@@ -153,6 +165,8 @@ static int car_thread(struct pt *pt, int interval) {
   unsigned int DistanceLeft = 0;
   unsigned int DistanceRight = 0;
   unsigned int i;
+  int x,y;
+  char s[100];
 
   PT_BEGIN(pt);
   while (1) {
@@ -165,7 +179,7 @@ static int car_thread(struct pt *pt, int interval) {
 #if 0      
     if (val[6] < 50 || val[5] < 50 || val[7] < 50) {
       //前方(为避免正前方声波无法反射,监测左右15度范围内障碍)有障碍,重新寻路
-      Stop();
+      mCar.Stop();
 
 
       DistanceRight = 0;
@@ -173,35 +187,51 @@ static int car_thread(struct pt *pt, int interval) {
       DistanceLeft = 0;
       for (i = 7; i <= 12; i++) DistanceLeft += val[i];
 #else
-    if (valMid < 50) {
+    int data[2];
+    mouse.report(data);
+    Serial.print(data[0]); // Status Byte
+    Serial.print(":");
+    x = data[1];
+    moveX += x;
+    Serial.print(x); // X Movement Data
+    Serial.print(",");
+    y = data[2];
+    moveY += y;
+    Serial.print(y); // Y Movement Data
+    Serial.println();
+    sprintf(s, " X:%d / Y:%d,", moveX, moveY);
+    Serial.println(s);
+    
+    if (valMid < 50 || moveX > 1000 || moveY > 1000 ) {
       //前方(为避免正前方声波无法反射,监测左右15度范围内障碍)有障碍,重新寻路
-      Stop();
+      mCar.Stop();
 
 
       DistanceRight = valRight;
       DistanceLeft = valLeft;
 #endif
       if (DistanceRight < DistanceLeft) {
-        TurnLeft();
+        mCar.TurnLeft();
         resetFlag = true;
       } else {
-        TurnRight();
+        //mCar.TurnRight();
+        mCar.MoveBackward();
         resetFlag = true;
       }
       
       carTimer.setTimer(600);
       PT_WAIT_UNTIL(pt, carTimer.Expired());
-      Stop();
+      mCar.Stop();
     } else if (val[6] < 150) {
       //90正前方1.5米内有障碍时,减速并持续监测正前方
-      gear = 0.75f;
+      mCar.ChangeGear( 0.75f );
       Serial.println("SpeedDown");
-      MoveForward();
+      mCar.MoveForward();
     } else {
       //前方还有空间时,设为正常速度并持续监测左右
-      gear = 1.25f;
+      mCar.ChangeGear( 1.25f );
       Serial.println("SpeedUP");
-      MoveForward();
+      mCar.MoveForward();
     }
 
     carTimer.setTimer(200);
@@ -216,57 +246,3 @@ void loop() {
 }
 
 
-
-void MoveForward()//前进
-{
-  analogWrite(5, int(165 * gear)); //输入模拟值进行设定速度
-  digitalWrite(7, LOW); //使直流电机（右）顺时针转
-  digitalWrite(6, HIGH);
-  analogWrite(11, int(160 * gear)); //输入模拟值进行设定速度
-  digitalWrite(9, HIGH); //使直流电机（左）逆时针转
-  digitalWrite(10, LOW);
-
-  Serial.println("MoveForward");
-}
-void MoveBackward()//前进
-{
-  analogWrite(5, int(165 * gear)); //输入模拟值进行设定速度
-  digitalWrite(6, LOW); //使直流电机（右）顺时针转
-  digitalWrite(7, HIGH);
-  analogWrite(11, int(160 * gear)); //输入模拟值进行设定速度
-  digitalWrite(10, HIGH); //使直流电机（左）逆时针转
-  digitalWrite(9, LOW);
-
-  Serial.println("MoveBackward");
-}
-void Stop()//停止
-{
-  digitalWrite(6, HIGH); //使直流电机（右）制动
-  digitalWrite(7, HIGH);
-  digitalWrite(9, HIGH); //使直流电机（左）制动
-  digitalWrite(10, HIGH);
-
-  Serial.println("Stop");
-}
-void TurnRight()//右转
-{
-  analogWrite(5, int(170 * gear)); //输入模拟值进行设定速度
-  digitalWrite(6, LOW); //使直流电机（右）顺时针转
-  digitalWrite(7, HIGH);
-  analogWrite(11, int(150 * gear)); //输入模拟值进行设定速度
-  digitalWrite(9, HIGH); //使直流电机（左）逆时针转
-  digitalWrite(10, LOW);
-
-  Serial.println("TurnRight");
-}
-void TurnLeft()//左转
-{
-  analogWrite(5, int(150 * gear)); //输入模拟值进行设定速度
-  digitalWrite(7, LOW); //使直流电机（右）顺时针转
-  digitalWrite(6, HIGH);
-  analogWrite(11, int(170 * gear)); //输入模拟值进行设定速度
-  digitalWrite(10, HIGH); //使直流电机（左）逆时针转
-  digitalWrite(9, LOW);
-
-  Serial.println("TurnLeft");
-}

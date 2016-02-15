@@ -1,0 +1,3 @@
+PT_Timer t;//定义一个定时器
+t.setTimer(unsinged long time) //定时时间，单位ms
+t.Expired()//判断定时器是否溢出，是返回值>0
