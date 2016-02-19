@@ -27,11 +27,16 @@ void setup()
 void loop()
 {
   int data[2];
+  static int x, y;
   mouse.report(data);
   Serial.print(data[0]); // Status Byte
   Serial.print(":");
-  Serial.print(data[1]); // X Movement Data
+  x += data[1];
+  Serial.print(x); // X Movement Data
   Serial.print(",");
-  Serial.print(data[2]); // Y Movement Data
+  y += data[2];
+  Serial.print(y); // Y Movement Data
   Serial.println();
+
+  //delay(200);
 }

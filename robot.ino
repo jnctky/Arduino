@@ -1,21 +1,24 @@
 #include <PT_timer.h>
 #include <pt.h>   // include protothread library
-static struct pt pt1, pt2, pt3, pt4; // each protothread needs one of these
-static PT_timer servoTimer;
-static PT_timer carTimer;
-static PT_timer mouseTimer;
-static PT_timer naviTimer;
+#include <Servo.h>
+
+#include "CJUltrasonicSensor.h"
+#include "CJCar.h"
 
 #include <PS2Mouse.h>
 #define MOUSE_DATA 2//5
 #define MOUSE_CLOCK 3//6
-static PS2Mouse mouse(MOUSE_CLOCK, MOUSE_DATA, REMOTE/*STREAM*/);
 
-#include "CJUltrasonicSensor.h"
+PS2Mouse mouse(MOUSE_CLOCK, MOUSE_DATA, STREAM);
+
+#define LEDPIN 13  // LEDPIN is a constant 
+
+static struct pt pt1, pt2, pt3; // each protothread needs one of these
 static CJUltrasonicSensor mDistanceSensorLeft, mDistanceSensorRight, mDistanceSensorMid;
-
-#include <Servo.h>
+static CJCar mCar;
 static Servo myservo;
+//static int inputPin = 12; //  定义超声波信号接收接口
+//static int outputPin = 13; //  定义超声波信号发出接口
 
 static int angle[13] =
 { 0, 15, 30, 45, 60, 75, 90,
@@ -24,40 +27,36 @@ static int angle[13] =
 static int val[13];
 static int valLeft, valRight, valMid;
 
-#include "CJCar.h"
-static CJCar mCar(11,12,13,9,8,10);
-#define MIN_DISTANCE 50
-
-#define LEDPIN 13  // LEDPIN is a constant 
-
+static PT_timer servoTimer;
+static PT_timer carTimer;
+static PT_timer mouseTimer;
 static bool initFlag = false;
 static bool resetFlag = true;
 
-static float posX = 0;
-static float posY = 0;
-static int targetDirection=0;
+static int moveX=0;
+static int moveY=0;
 
 void setup() {
+  myservo.attach(8); //8号引脚输出舵机控制信号
   Serial.begin(38400); //仅能使用9、10号引脚
+  pinMode(9, OUTPUT); //定义I3接口
+  pinMode(10, OUTPUT); //定义I4接口
+  pinMode(11, OUTPUT); //定义EB(PWM调速)接口
+  pinMode(5, OUTPUT); //定义EA(PWM调速)接口
+  pinMode(6, OUTPUT); //定义I2接口
+  pinMode(7, OUTPUT); //定义I1接口
+  myservo.write(90); //使舵机转到90度
 
+
+  pinMode(LEDPIN, OUTPUT); // LED init
   PT_INIT(&pt1);  // initialise the two
   PT_INIT(&pt2);  // protothread variables
-  PT_INIT(&pt3);  // protothread variables
-  PT_INIT(&pt4);  // protothread variables
 
-  /*
-  myservo.attach(8); //8号引脚输出舵机控制信号
-  myservo.write(90); //使舵机转到90度
-  */
+  mDistanceSensorMid.setMode(2, 12, 13);
+  mDistanceSensorLeft.setMode(2, A3, A2);
+  mDistanceSensorRight.setMode(2, 4, 3);
 
-  //pinMode(LEDPIN, OUTPUT); // LED init
-  
-  mDistanceSensorRight.setMode(2, A0, A1);
-  mDistanceSensorMid.setMode(2, A2, A3);
-  mDistanceSensorLeft.setMode(2, A4, A5);
-
-  //未连接鼠标时不能初始化鼠标,否则会导致PS2库程序阻塞卡死
-  //mouse.initialize();
+  mouse.initialize();
 }
 
 void toggleLED() {
@@ -80,7 +79,7 @@ static int ultrasonic_thread(struct pt *pt) {
   int iAngle = 0;
   PT_BEGIN(pt);
   while (1) { // never stop
-    Serial.println("PT1");
+    //Serial.println("PT1");
     /* each time the function is called the second boolean
        argument "millis() - timestamp > interval" is re-evaluated
        and if false the function exits after that. */
@@ -90,7 +89,6 @@ static int ultrasonic_thread(struct pt *pt) {
 
     if (resetFlag) {
       //变向后首次测距前清楚旧数据
-      
       counter = 6;
       initFlag = false;
       resetFlag = false;
@@ -108,7 +106,7 @@ static int ultrasonic_thread(struct pt *pt) {
       sprintf(s, "PT1 counter:%d - val[%d]:%d", counter, angle[counter], val[counter]);
       
      
-      if (val[6] < 4000/*150*/ && initFlag) {
+      if (val[6] < 9000/*150*/ && initFlag) {
         //90正前方1.5米内有障碍时,减速并持续监测正前方
         counter = 6;
       } else {
@@ -149,13 +147,12 @@ static int ultrasonic_thread(struct pt *pt) {
     }
     
     //等待舵机旋转时间
-    //iAngle = abs(angle[counter] - lastAngle);
-    //interval = max(iAngle * 10 + 5, 160);
-    //lastAngle = angle[counter];
-    //sprintf(s, "%s / interval:%d / iAngle:%d,", s, interval, iAngle);
-    
-    Serial.println(s);
-    //servoTimer.setTimer(10);
+    iAngle = abs(angle[counter] - lastAngle);
+    interval = max(iAngle * 10 + 5, 160);
+    lastAngle = angle[counter];
+
+    sprintf(s, "%s / interval:%d / iAngle:%d,", s, interval, iAngle);
+    //Serial.println(s);
     servoTimer.setTimer(interval);
     PT_WAIT_UNTIL(pt, servoTimer.Expired());
   }
@@ -164,14 +161,13 @@ static int ultrasonic_thread(struct pt *pt) {
 }
 
 /* exactly the same as the protothread1 function */
-static int car_thread(struct pt *pt) {
+static int car_thread(struct pt *pt, int interval) {
   static unsigned long timestamp = 0;
   unsigned int DistanceLeft = 0;
   unsigned int DistanceRight = 0;
   unsigned int i;
   int x,y;
   char s[100];
-  int interval;
 
   PT_BEGIN(pt);
   while (1) {
@@ -180,50 +176,53 @@ static int car_thread(struct pt *pt) {
 
     Serial.println("PT2");
     //至少等待至前方180度都扫描完毕
-    PT_WAIT_UNTIL(pt, !resetFlag && initFlag );
- 
-    if (valMid < MIN_DISTANCE || valLeft < MIN_DISTANCE || valRight < MIN_DISTANCE) {
-      Serial.println("***************PT2 debug 1");
+    PT_WAIT_UNTIL(pt, initFlag );
+#if 0      
+    if (val[6] < 50 || val[5] < 50 || val[7] < 50) {
       //前方(为避免正前方声波无法反射,监测左右15度范围内障碍)有障碍,重新寻路
       mCar.Stop();
-      resetFlag = true;
-      PT_WAIT_UNTIL(pt, !resetFlag && initFlag );
 
-      //if (valRight < MIN_DISTANCE && valLeft < MIN_DISTANCE ) {
-      //  mCar.MoveBackward();
-      //} else {
-        if (valRight < valLeft) {
-          interval = mCar.TurnLeft(45);
-          resetFlag = true;
-        } else {
-          interval = mCar.TurnRight(45);
-          resetFlag = true;
-        }
-      //}
-      interval = max(interval, 100);
-      carTimer.setTimer(interval);
-      PT_WAIT_UNTIL(pt, carTimer.Expired());
 
+      DistanceRight = 0;
+      for (i = 0; i <= 5; i++) DistanceRight += val[i];
+      DistanceLeft = 0;
+      for (i = 7; i <= 12; i++) DistanceLeft += val[i];
+#else
+
+    if (valMid < 50 || moveY > 600 ) {
+      //前方(为避免正前方声波无法反射,监测左右15度范围内障碍)有障碍,重新寻路
       mCar.Stop();
-    } else {
-      Serial.println("***************PT2 debug 2");
-       if (valMid < MIN_DISTANCE * 3 ) {
-        //90正前方1.5米内有障碍时,减速并持续监测正前方
-        mCar.ChangeGear( 0.75f );
-        Serial.println("SpeedDown");
-        mCar.MoveForward();
+
+
+      DistanceRight = valRight;
+      DistanceLeft = valLeft;
+#endif
+      if (DistanceRight < DistanceLeft) {
+        mCar.TurnLeft();
+        resetFlag = true;
       } else {
-        //前方还有空间时,设为正常速度并持续监测左右
-        mCar.ChangeGear( 1.0f );
-        Serial.println("SpeedUP");
-        mCar.MoveForward();
+        //mCar.TurnRight();
+        mCar.MoveBackward();
+        resetFlag = true;
       }
-
-      carTimer.setTimer(100);
+      
+      carTimer.setTimer(600);
       PT_WAIT_UNTIL(pt, carTimer.Expired());
+      mCar.Stop();
+    } else if (val[6] < 150) {
+      //90正前方1.5米内有障碍时,减速并持续监测正前方
+      mCar.ChangeGear( 0.75f );
+      Serial.println("SpeedDown");
+      mCar.MoveForward();
+    } else {
+      //前方还有空间时,设为正常速度并持续监测左右
+      mCar.ChangeGear( 1.25f );
+      Serial.println("SpeedUP");
+      mCar.MoveForward();
     }
-    
 
+    carTimer.setTimer(200);
+    PT_WAIT_UNTIL(pt, carTimer.Expired());
   }
   PT_END(pt);
 }
@@ -233,60 +232,53 @@ static int mouse_thread(struct pt *pt) {
   static unsigned long timestamp = 0;
   unsigned int DistanceLeft = 0;
   unsigned int DistanceRight = 0;
+  unsigned int i;
+  int x,y;
   char s[100];
 
-  PT_BEGIN(pt);
-  while (1) {
+  //PT_BEGIN(pt);
+  //while (1) {
     //PT_WAIT_UNTIL(pt, millis() - timestamp > 10 );
-    Serial.println("PT3");
-    Serial.println(millis() - timestamp);
     timestamp = millis();
+    //Serial.println("PT3");
 
     int data[2];
     mouse.report(data);
-    posX += data[1];
-    posY += data[2];
-    sprintf(s, " X:%d / Y:%d,", posX, posY);
+    //Serial.print(data[0]); // Status Byte
+    //Serial.print(":");
+    x = data[1];
+    moveX += x;
+    //Serial.print(x); // X Movement Data
+    //Serial.print(",");
+    y = data[2];
+    moveY += y;
+    //Serial.print(y); // Y Movement Data
+    //Serial.println();
+    sprintf(s, " X:%d / Y:%d,", moveX, moveY);
     Serial.println(s);
 
-    mouseTimer.setTimer(10);
-    PT_WAIT_UNTIL(pt, mouseTimer.Expired());
-  }
-  PT_END(pt);
-}
-
-/* exactly the same as the protothread1 function */
-static int navi_thread(struct pt *pt) {
-  static unsigned long timestamp = 0;
-  char s[100];
-
-  PT_BEGIN(pt);
-  while (1) {
-    //PT_WAIT_UNTIL(pt, millis() - timestamp > 10 );
-    Serial.println("PT4");
-    //timestamp = millis();
-
-//    mNavigater.setPosition(posX,posY);
-//    targetDirection = mNavigater.getDirection();
-    sprintf(s, " X:%d / Y:%d,", posX, posY);
-    Serial.println(s);
-
-    naviTimer.setTimer(200);
-    PT_WAIT_UNTIL(pt, naviTimer.Expired());
-  }
-  PT_END(pt);
+    //mouseTimer.setTimer(10);
+    //PT_WAIT_UNTIL(pt, mouseTimer.Expired());
+  //}
+  //PT_END(pt);
 }
 
 void loop() {
-  ultrasonic_thread(&pt1); // schedule the two protothreads
-  car_thread(&pt2); // by calling them infinitely
+  //ultrasonic_thread(&pt1); // schedule the two protothreads
+  //car_thread(&pt2, 200); // by calling them infinitely
   //mouse_thread(&pt3);
-  //navi_thread(&pt4);
-  /*
-  char s[100];
-  sprintf(s, " X:%d / Y:%d,", posX, posY);
-  Serial.println(s);
-  */
+
+  int data[2];
+  static int x, y;
+  mouse.report(data);
+  Serial.print(data[0]); // Status Byte
+  Serial.print(":");
+  x += data[1];
+  Serial.print(x); // X Movement Data
+  Serial.print(",");
+  y += data[2];
+  Serial.print(y); // Y Movement Data
+  Serial.println();
 }
 
 
