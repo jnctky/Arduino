@@ -1,8 +1,8 @@
 #include "arduino.h"
 #include "CJCar.h"
 
-#define START_DELAY_MS   20
-#define STEP_1DEGREE_MS  30
+#define START_DELAY_MS   50
+#define STEP_1DEGREE_MS  8
 
 #define A_SPEED  (150*0.75)
 #define B_SPEED  (170*0.75)

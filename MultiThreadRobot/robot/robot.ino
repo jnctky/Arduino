@@ -68,7 +68,7 @@ void toggleLED() {
 
 /* This function toggles the LED after 'interval' ms passed */
 static int ultrasonic_thread(struct pt *pt) {
-  static unsigned int interval = 150;
+  static unsigned int interval = 50;
   static unsigned long timestamp = 0;
   static unsigned int counter = 6; //90 degree
   static int lastAngle = 90;
@@ -182,7 +182,7 @@ static int car_thread(struct pt *pt) {
     //至少等待至前方180度都扫描完毕
     PT_WAIT_UNTIL(pt, !resetFlag && initFlag );
  
-    if (valMid < MIN_DISTANCE || valLeft < MIN_DISTANCE || valRight < MIN_DISTANCE) {
+    if (valMid < MIN_DISTANCE || valLeft < MIN_DISTANCE/4 || valRight < MIN_DISTANCE/4 ) {
       Serial.println("***************PT2 debug 1");
       //前方(为避免正前方声波无法反射,监测左右15度范围内障碍)有障碍,重新寻路
       mCar.Stop();
@@ -205,9 +205,12 @@ static int car_thread(struct pt *pt) {
       PT_WAIT_UNTIL(pt, carTimer.Expired());
 
       mCar.Stop();
+      interval = 300;
+      carTimer.setTimer(interval);
+      PT_WAIT_UNTIL(pt, carTimer.Expired());
     } else {
       Serial.println("***************PT2 debug 2");
-       if (valMid < MIN_DISTANCE * 3 ) {
+      if (valMid < MIN_DISTANCE * 3 ) {
         //90正前方1.5米内有障碍时,减速并持续监测正前方
         mCar.ChangeGear( 0.75f );
         Serial.println("SpeedDown");
@@ -219,7 +222,7 @@ static int car_thread(struct pt *pt) {
         mCar.MoveForward();
       }
 
-      carTimer.setTimer(100);
+      carTimer.setTimer(50);
       PT_WAIT_UNTIL(pt, carTimer.Expired());
     }
     
