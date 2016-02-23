@@ -11,8 +11,6 @@ static PT_timer naviTimer;
 #define MOUSE_CLOCK 3//6
 static PS2Mouse mouse(MOUSE_CLOCK, MOUSE_DATA, REMOTE/*STREAM*/);
 
-#include "CJUltrasonicSensor.h"
-static CJUltrasonicSensor mDistanceSensorLeft, mDistanceSensorRight, mDistanceSensorMid;
 
 #include <Servo.h>
 static Servo myservo;
@@ -24,9 +22,15 @@ static int angle[13] =
 static int val[13];
 static int valLeft, valRight, valMid;
 
+#include "CJUltrasonicSensor.h"
+static CJUltrasonicSensor mDistanceSensorLeft, mDistanceSensorRight, mDistanceSensorMid;
+
 #include "CJCar.h"
 static CJCar mCar(11,12,13,9,8,10);
 #define MIN_DISTANCE 50
+
+#include "CJDebugger.h"
+//static CJDebugger mDebugger;
 
 #define LEDPIN 13  // LEDPIN is a constant 
 
@@ -38,7 +42,8 @@ static float posY = 0;
 static int targetDirection=0;
 
 void setup() {
-  Serial.begin(38400); //仅能使用9、10号引脚
+  //CJDebugger::setup(DEBUG_PORT_SERIAL, 38400);
+  CJDebugger::setup(DEBUG_PORT_BLUETOOTH, 38400);
 
   PT_INIT(&pt1);  // initialise the two
   PT_INIT(&pt2);  // protothread variables
@@ -80,7 +85,7 @@ static int ultrasonic_thread(struct pt *pt) {
   int iAngle = 0;
   PT_BEGIN(pt);
   while (1) { // never stop
-    Serial.println("PT1");
+    CJDebugger::println("PT1");
     /* each time the function is called the second boolean
        argument "millis() - timestamp > interval" is re-evaluated
        and if false the function exits after that. */
@@ -154,7 +159,7 @@ static int ultrasonic_thread(struct pt *pt) {
     //lastAngle = angle[counter];
     //sprintf(s, "%s / interval:%d / iAngle:%d,", s, interval, iAngle);
     
-    Serial.println(s);
+    CJDebugger::println(s);
     //servoTimer.setTimer(10);
     servoTimer.setTimer(interval);
     PT_WAIT_UNTIL(pt, servoTimer.Expired());
@@ -178,12 +183,12 @@ static int car_thread(struct pt *pt) {
     //PT_WAIT_UNTIL(pt, millis() - timestamp > interval );
     //timestamp = millis();
 
-    Serial.println("PT2");
+    CJDebugger::println("PT2");
     //至少等待至前方180度都扫描完毕
     PT_WAIT_UNTIL(pt, !resetFlag && initFlag );
  
     if (valMid < MIN_DISTANCE || valLeft < MIN_DISTANCE/4 || valRight < MIN_DISTANCE/4 ) {
-      Serial.println("***************PT2 debug 1");
+      CJDebugger::println("***************PT2 debug 1");
       //前方(为避免正前方声波无法反射,监测左右15度范围内障碍)有障碍,重新寻路
       mCar.Stop();
       resetFlag = true;
@@ -209,16 +214,16 @@ static int car_thread(struct pt *pt) {
       carTimer.setTimer(interval);
       PT_WAIT_UNTIL(pt, carTimer.Expired());
     } else {
-      Serial.println("***************PT2 debug 2");
+      CJDebugger::println("***************PT2 debug 2");
       if (valMid < MIN_DISTANCE * 3 ) {
         //90正前方1.5米内有障碍时,减速并持续监测正前方
         mCar.ChangeGear( 0.75f );
-        Serial.println("SpeedDown");
+        CJDebugger::println("SpeedDown");
         mCar.MoveForward();
       } else {
         //前方还有空间时,设为正常速度并持续监测左右
         mCar.ChangeGear( 1.0f );
-        Serial.println("SpeedUP");
+        CJDebugger::println("SpeedUP");
         mCar.MoveForward();
       }
 
@@ -241,8 +246,8 @@ static int mouse_thread(struct pt *pt) {
   PT_BEGIN(pt);
   while (1) {
     //PT_WAIT_UNTIL(pt, millis() - timestamp > 10 );
-    Serial.println("PT3");
-    Serial.println(millis() - timestamp);
+    CJDebugger::println("PT3");
+    //CJDebugger::println(millis() - timestamp);
     timestamp = millis();
 
     int data[2];
@@ -250,7 +255,7 @@ static int mouse_thread(struct pt *pt) {
     posX += data[1];
     posY += data[2];
     sprintf(s, " X:%d / Y:%d,", posX, posY);
-    Serial.println(s);
+    CJDebugger::println(s);
 
     mouseTimer.setTimer(10);
     PT_WAIT_UNTIL(pt, mouseTimer.Expired());
@@ -266,13 +271,13 @@ static int navi_thread(struct pt *pt) {
   PT_BEGIN(pt);
   while (1) {
     //PT_WAIT_UNTIL(pt, millis() - timestamp > 10 );
-    Serial.println("PT4");
+    CJDebugger::println("PT4");
     //timestamp = millis();
 
 //    mNavigater.setPosition(posX,posY);
 //    targetDirection = mNavigater.getDirection();
     sprintf(s, " X:%d / Y:%d,", posX, posY);
-    Serial.println(s);
+    CJDebugger::println(s);
 
     naviTimer.setTimer(200);
     PT_WAIT_UNTIL(pt, naviTimer.Expired());
@@ -281,6 +286,7 @@ static int navi_thread(struct pt *pt) {
 }
 
 void loop() {
+ 
   ultrasonic_thread(&pt1); // schedule the two protothreads
   car_thread(&pt2); // by calling them infinitely
   //mouse_thread(&pt3);

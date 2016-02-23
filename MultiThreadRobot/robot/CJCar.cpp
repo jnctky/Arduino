@@ -1,5 +1,6 @@
 #include "arduino.h"
 #include "CJCar.h"
+#include "CJDebugger.h"
 
 #define START_DELAY_MS   50
 #define STEP_1DEGREE_MS  8
@@ -51,7 +52,7 @@ void CJCar::MoveForward()//前进
   digitalWrite(mPinIn3, HIGH); //使直流电机（左）逆时针转
   digitalWrite(mPinIn4, LOW);
 
-  Serial.println("MoveForward");
+  CJDebugger::println("MoveForward");
 }
 void CJCar::MoveBackward()//前进
 {
@@ -62,7 +63,7 @@ void CJCar::MoveBackward()//前进
   digitalWrite(mPinIn4, HIGH); //使直流电机（左）逆时针转
   digitalWrite(mPinIn3, LOW);
 
-  Serial.println("MoveBackward");
+  CJDebugger::println("MoveBackward");
 }
 void CJCar::Stop()//停止
 {
@@ -71,7 +72,7 @@ void CJCar::Stop()//停止
   digitalWrite(mPinIn3, HIGH); //使直流电机（左）制动
   digitalWrite(mPinIn4, HIGH);
 
-  Serial.println("Stop");
+  CJDebugger::println("Stop");
 }
 
 int CJCar::TurnRight(int degree)//右转
@@ -85,7 +86,7 @@ int CJCar::TurnRight(int degree)//右转
   digitalWrite(mPinIn3, HIGH); //使直流电机（左）逆时针转
   digitalWrite(mPinIn4, LOW);
 
-  Serial.println("TurnRight");
+  CJDebugger::println("TurnRight");
   
   millis = START_DELAY_MS;
   millis += degree * STEP_1DEGREE_MS;
@@ -105,7 +106,7 @@ int CJCar::TurnLeft(int degree)//左转
   digitalWrite(mPinIn4, HIGH); //使直流电机（左）逆时针转
   digitalWrite(mPinIn3, LOW);
 
-  Serial.println("TurnLeft");
+  CJDebugger::println("TurnLeft");
 
   millis = START_DELAY_MS;
   millis += degree * STEP_1DEGREE_MS;
