@@ -6,6 +6,7 @@
 // Connect the HC-05 RX to Arduino pin 3 TX through a voltage divider.
 
 int CJDebugger::mPort = DEBUG_PORT_NONE;
+bool CJDebugger::mEnableLog = true;
 SoftwareSerial *CJDebugger::mBTserial = new SoftwareSerial(2, 3);
 
 CJDebugger::CJDebugger()
@@ -28,9 +29,17 @@ void CJDebugger::setup(int port, long baurate)
 
 }
 
+void CJDebugger::EnableLog(bool bFlag)
+{
+  mEnableLog = bFlag;
+}
 
 void CJDebugger::println(String str)
 {
+  if (!mEnableLog) {
+    return; 
+  }
+  
   if (DEBUG_PORT_SERIAL == mPort) {
     Serial.println(str);
   } else if (DEBUG_PORT_BLUETOOTH == mPort) {
@@ -39,5 +48,10 @@ void CJDebugger::println(String str)
     // do nothing
   }
   
+}
+
+SoftwareSerial* CJDebugger::GetBtserial()
+{
+  return mBTserial;
 }
 

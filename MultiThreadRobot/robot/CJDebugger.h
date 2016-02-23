@@ -16,11 +16,14 @@ class CJDebugger
 protected:
   static int mPort;
   static SoftwareSerial *mBTserial;
+  static bool mEnableLog;
   
 public:
   CJDebugger();//类的构造函数，与类名相同
   static void setup(int port, long baurate);
   static void println(String str);
+  static SoftwareSerial *GetBtserial();
+  static void EnableLog(bool bFlag);
 
 };
 

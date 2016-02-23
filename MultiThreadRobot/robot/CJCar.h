@@ -13,10 +13,11 @@ private:
   float gear;
   
 public:
-  CJCar(int enA, int in1, int in2, int enB, int in3, int in4);//类的构造函数，与类名相同
+  CJCar(int enA, int in1, int in2, int in3, int in4, int enB);//类的构造函数，与类名相同
   void MoveForward();
   void MoveBackward();
   void Stop();
+  void Break();
   int TurnRight(int degree);
   int TurnLeft(int degree);
   void ChangeGear( float val );

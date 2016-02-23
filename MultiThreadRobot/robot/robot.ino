@@ -1,10 +1,11 @@
 #include <PT_timer.h>
 #include <pt.h>   // include protothread library
-static struct pt pt1, pt2, pt3, pt4; // each protothread needs one of these
+static struct pt pt1, pt2, pt3, pt4, pt5; // each protothread needs one of these
 static PT_timer servoTimer;
 static PT_timer carTimer;
 static PT_timer mouseTimer;
 static PT_timer naviTimer;
+static PT_timer remoteTimer;
 
 #include <PS2Mouse.h>
 #define MOUSE_DATA 2//5
@@ -26,13 +27,13 @@ static int valLeft, valRight, valMid;
 static CJUltrasonicSensor mDistanceSensorLeft, mDistanceSensorRight, mDistanceSensorMid;
 
 #include "CJCar.h"
-static CJCar mCar(11,12,13,9,8,10);
+static CJCar mCar(11,12,13,8,9,10);
 #define MIN_DISTANCE 50
 
 #include "CJDebugger.h"
 //static CJDebugger mDebugger;
 
-#define LEDPIN 13  // LEDPIN is a constant 
+//#define LEDPIN 13  // LEDPIN is a constant 
 
 static bool initFlag = false;
 static bool resetFlag = true;
@@ -41,14 +42,21 @@ static float posX = 0;
 static float posY = 0;
 static int targetDirection=0;
 
+#define CAR_MODE_AUTO    0
+#define CAR_MODE_REMOTE  1
+static int mCarMode = CAR_MODE_AUTO;
+        
 void setup() {
+  Serial.begin(38400);
   //CJDebugger::setup(DEBUG_PORT_SERIAL, 38400);
   CJDebugger::setup(DEBUG_PORT_BLUETOOTH, 38400);
-
+  CJDebugger::EnableLog(false);
+  
   PT_INIT(&pt1);  // initialise the two
   PT_INIT(&pt2);  // protothread variables
   PT_INIT(&pt3);  // protothread variables
   PT_INIT(&pt4);  // protothread variables
+  PT_INIT(&pt5);  // protothread variables
 
   /*
   myservo.attach(8); //8号引脚输出舵机控制信号
@@ -65,11 +73,12 @@ void setup() {
   //mouse.initialize();
 }
 
+/*
 void toggleLED() {
   boolean ledstate = digitalRead(LEDPIN); // get LED state
   ledstate ^= 1;   // toggle LED state using xor
   digitalWrite(LEDPIN, ledstate); // write inversed state back
-}
+}*/
 
 /* This function toggles the LED after 'interval' ms passed */
 static int ultrasonic_thread(struct pt *pt) {
@@ -91,7 +100,6 @@ static int ultrasonic_thread(struct pt *pt) {
        and if false the function exits after that. */
     //PT_WAIT_UNTIL(pt, millis() - timestamp > interval );
     //timestamp = millis(); // take a new timestamp
-    //toggleLED();
 
     if (resetFlag) {
       //变向后首次测距前清楚旧数据
@@ -285,17 +293,72 @@ static int navi_thread(struct pt *pt) {
   PT_END(pt);
 }
 
-void loop() {
- 
-  ultrasonic_thread(&pt1); // schedule the two protothreads
-  car_thread(&pt2); // by calling them infinitely
-  //mouse_thread(&pt3);
-  //navi_thread(&pt4);
-  /*
-  char s[100];
-  sprintf(s, " X:%d / Y:%d,", posX, posY);
-  Serial.println(s);
-  */
+/* exactly the same as the protothread1 function */
+static int remote_thread(struct pt *pt) {
+  SoftwareSerial *pBTserial = CJDebugger::GetBtserial();
+  char c = ' ';
+  
+  PT_BEGIN(pt);
+  while (1) {
+    // Keep reading from HC-05 and send to Arduino Serial Monitor
+    if (pBTserial->available())
+    {  
+        c = pBTserial->read();
+        //Serial.println(c);
+    }
+
+    if( 'X' == c ) {
+      if ( mCarMode == CAR_MODE_AUTO ) {
+        mCarMode = CAR_MODE_REMOTE;
+      } else {
+        mCarMode == CAR_MODE_AUTO;
+      }
+      mCar.Stop();
+    } else {
+      if( mCarMode == CAR_MODE_REMOTE ) {
+        if( 'L' == c ) {
+          mCar.TurnLeft(1);
+        } else if ('R' == c ) {
+          mCar.TurnRight(1);
+        } else if ('F' == c ) {
+          mCar.MoveForward();
+        } else if ('B' == c ) {
+          mCar.MoveBackward();
+        } else {
+          mCar.Stop();
+        }
+      }
+    }
+    // Keep reading from Arduino Serial Monitor and send to HC-05
+    /*
+    if (Serial.available())
+    {
+        c =  Serial.read();
+        pBTserial->write(c);  
+    }
+    */
+  
+    remoteTimer.setTimer(100);
+    PT_WAIT_UNTIL(pt, remoteTimer.Expired());
+  }
+  PT_END(pt);
+    
 }
+
+void loop() {
+
+  if( mCarMode == CAR_MODE_AUTO ){
+    ultrasonic_thread(&pt1); // schedule the two protothreads
+    car_thread(&pt2); // by calling them infinitely
+  }
+  
+  //mouse_thread(&pt3);
+  
+  //navi_thread(&pt4);
+
+  remote_thread(&pt5);
+
+}
+
 
 

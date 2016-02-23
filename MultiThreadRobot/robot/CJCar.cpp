@@ -8,7 +8,7 @@
 #define A_SPEED  (150*0.75)
 #define B_SPEED  (170*0.75)
 
-CJCar::CJCar(int enA, int in1, int in2, int enB, int in3, int in4)
+CJCar::CJCar(int enA, int in1, int in2, int in3, int in4, int enB)
 {
   mPinEnA = enA;
   mPinIn1 = in1;
@@ -57,31 +57,45 @@ void CJCar::MoveForward()//前进
 void CJCar::MoveBackward()//前进
 {
   analogWrite(mPinEnA, int(A_SPEED * gear)); //输入模拟值进行设定速度
-  digitalWrite(mPinIn2, LOW); //使直流电机（右）顺时针转
   digitalWrite(mPinIn1, HIGH);
+  digitalWrite(mPinIn2, LOW); //使直流电机（右）顺时针转
   analogWrite(mPinEnB, int(B_SPEED * gear)); //输入模拟值进行设定速度
-  digitalWrite(mPinIn4, HIGH); //使直流电机（左）逆时针转
   digitalWrite(mPinIn3, LOW);
+  digitalWrite(mPinIn4, HIGH); //使直流电机（左）逆时针转
 
   CJDebugger::println("MoveBackward");
 }
+
 void CJCar::Stop()//停止
+{
+  digitalWrite(mPinEnA, LOW);
+  digitalWrite(mPinIn2, LOW); //使直流电机（右）制动
+  digitalWrite(mPinIn1, LOW);
+
+  digitalWrite(mPinEnB, LOW);
+  digitalWrite(mPinIn3, LOW); //使直流电机（左）制动
+  digitalWrite(mPinIn4, LOW);
+
+  CJDebugger::println("Stop");
+}
+
+
+void CJCar::Break()//急刹车
 {
   digitalWrite(mPinIn2, HIGH); //使直流电机（右）制动
   digitalWrite(mPinIn1, HIGH);
   digitalWrite(mPinIn3, HIGH); //使直流电机（左）制动
   digitalWrite(mPinIn4, HIGH);
 
-  CJDebugger::println("Stop");
+  CJDebugger::println("Break");
 }
-
 int CJCar::TurnRight(int degree)//右转
 { 
   int millis = 0;
   
   analogWrite(mPinEnA, int(A_SPEED * gear)); //输入模拟值进行设定速度
-  digitalWrite(mPinIn2, LOW); //使直流电机（右）顺时针转
   digitalWrite(mPinIn1, HIGH);
+  digitalWrite(mPinIn2, LOW); //使直流电机（右）顺时针转
   analogWrite(mPinEnB, int(B_SPEED * gear)); //输入模拟值进行设定速度
   digitalWrite(mPinIn3, HIGH); //使直流电机（左）逆时针转
   digitalWrite(mPinIn4, LOW);
@@ -103,8 +117,8 @@ int CJCar::TurnLeft(int degree)//左转
   digitalWrite(mPinIn1, LOW); //使直流电机（右）顺时针转
   digitalWrite(mPinIn2, HIGH);
   analogWrite(mPinEnB, int(B_SPEED * gear)); //输入模拟值进行设定速度
-  digitalWrite(mPinIn4, HIGH); //使直流电机（左）逆时针转
   digitalWrite(mPinIn3, LOW);
+  digitalWrite(mPinIn4, HIGH); //使直流电机（左）逆时针转
 
   CJDebugger::println("TurnLeft");
 
