@@ -1,3 +1,6 @@
+//#define NOT_USE_ULTRARED_SENSOR
+//#define NOT_USE_BLUETOOTH_REMOTE
+
 #include <PT_timer.h>
 #include <pt.h>   // include protothread library
 static struct pt pt1, pt2, pt3, pt4, pt5; // each protothread needs one of these
@@ -8,8 +11,8 @@ static PT_timer naviTimer;
 static PT_timer remoteTimer;
 
 #include <PS2Mouse.h>
-#define MOUSE_DATA 2//5
-#define MOUSE_CLOCK 3//6
+#define MOUSE_DATA  5 //2//5
+#define MOUSE_CLOCK 6 //3//6
 static PS2Mouse mouse(MOUSE_CLOCK, MOUSE_DATA, REMOTE/*STREAM*/);
 
 
@@ -21,17 +24,26 @@ static int angle[13] =
   105, 120, 135, 150, 165, 180
 };
 static int val[13];
-static int valLeft, valRight, valMid;
+static int valLeft, valRight, valMid, valMid2;
 
 #include "CJUltrasonicSensor.h"
 static CJUltrasonicSensor mDistanceSensorLeft, mDistanceSensorRight, mDistanceSensorMid;
+
+#ifndef NOT_USE_ULTRARED_SENSOR
+  #include "CJUltraredSensor.h"
+  static CJUltraredSensor mDistanceSensorMid2(A3);
+#endif
 
 #include "CJCar.h"
 static CJCar mCar(11,12,13,8,9,10);
 #define MIN_DISTANCE 50
 
 #include "CJDebugger.h"
-//static CJDebugger mDebugger;
+
+#ifndef NOT_USE_BLUETOOTH_REMOTE
+#include "CJBluetooth.h"
+static CJBluetooth mBluetooth;
+#endif
 
 //#define LEDPIN 13  // LEDPIN is a constant 
 
@@ -47,10 +59,12 @@ static int targetDirection=0;
 static int mCarMode = CAR_MODE_AUTO;
         
 void setup() {
-  Serial.begin(38400);
-  //CJDebugger::setup(DEBUG_PORT_SERIAL, 38400);
+#ifdef NOT_USE_BLUETOOTH_REMOTE
   CJDebugger::setup(DEBUG_PORT_BLUETOOTH, 38400);
-  CJDebugger::EnableLog(false);
+#else
+  CJDebugger::setup(DEBUG_PORT_SERIAL, 38400);
+  mBluetooth.setup(2,3, 38400);
+#endif
   
   PT_INIT(&pt1);  // initialise the two
   PT_INIT(&pt2);  // protothread variables
@@ -66,7 +80,7 @@ void setup() {
   //pinMode(LEDPIN, OUTPUT); // LED init
   
   mDistanceSensorRight.setMode(2, A0, A1);
-  mDistanceSensorMid.setMode(2, A2, A3);
+  mDistanceSensorMid.setMode(2, A2, 4 /*A3*/);
   mDistanceSensorLeft.setMode(2, A4, A5);
 
   //未连接鼠标时不能初始化鼠标,否则会导致PS2库程序阻塞卡死
@@ -154,9 +168,10 @@ static int ultrasonic_thread(struct pt *pt) {
      myservo.write(angle[counter]);
 #else
     valMid = mDistanceSensorMid.GetDistance(); //将超声波读取的距离值赋值给val
+    valMid2 = mDistanceSensorMid2.GetDistance(); //将超声波读取的距离值赋值给val
     valLeft = mDistanceSensorLeft.GetDistance(); //将超声波读取的距离值赋值给val
     valRight = mDistanceSensorRight.GetDistance(); //将超声波读取的距离值赋值给val
-    sprintf(s, "PT1 - valMid:%d, valLeft:%d, valRight:%d", valMid, valLeft, valRight);
+    sprintf(s, "PT1 - valMid:%d, valMid2:%d, valLeft:%d, valRight:%d", valMid, valMid2, valLeft, valRight);
     initFlag = true;
 #endif
     }
@@ -195,7 +210,7 @@ static int car_thread(struct pt *pt) {
     //至少等待至前方180度都扫描完毕
     PT_WAIT_UNTIL(pt, !resetFlag && initFlag );
  
-    if (valMid < MIN_DISTANCE || valLeft < MIN_DISTANCE/4 || valRight < MIN_DISTANCE/4 ) {
+    if (valMid < MIN_DISTANCE || valMid2 < MIN_DISTANCE || valLeft < MIN_DISTANCE/4 || valRight < MIN_DISTANCE/4 ) {
       CJDebugger::println("***************PT2 debug 1");
       //前方(为避免正前方声波无法反射,监测左右15度范围内障碍)有障碍,重新寻路
       mCar.Stop();
@@ -223,7 +238,7 @@ static int car_thread(struct pt *pt) {
       PT_WAIT_UNTIL(pt, carTimer.Expired());
     } else {
       CJDebugger::println("***************PT2 debug 2");
-      if (valMid < MIN_DISTANCE * 3 ) {
+      if (valMid < MIN_DISTANCE * 3 || valMid2 < MIN_DISTANCE * 2 ) {
         //90正前方1.5米内有障碍时,减速并持续监测正前方
         mCar.ChangeGear( 0.75f );
         CJDebugger::println("SpeedDown");
@@ -262,7 +277,7 @@ static int mouse_thread(struct pt *pt) {
     mouse.report(data);
     posX += data[1];
     posY += data[2];
-    sprintf(s, " X:%d / Y:%d,", posX, posY);
+    sprintf(s, " PosX:%d / PosY:%d / X:%d / Y:%d ", posX, posY, data[1], data[2]);
     CJDebugger::println(s);
 
     mouseTimer.setTimer(10);
@@ -295,7 +310,7 @@ static int navi_thread(struct pt *pt) {
 
 /* exactly the same as the protothread1 function */
 static int remote_thread(struct pt *pt) {
-  SoftwareSerial *pBTserial = CJDebugger::GetBtserial();
+  SoftwareSerial *pBTserial = mBluetooth.GetBtserial();
   char c = ' ';
   
   PT_BEGIN(pt);
@@ -305,29 +320,29 @@ static int remote_thread(struct pt *pt) {
     {  
         c = pBTserial->read();
         //Serial.println(c);
-    }
 
-    if( 'X' == c ) {
-      if ( mCarMode == CAR_MODE_AUTO ) {
-        mCarMode = CAR_MODE_REMOTE;
-      } else {
-        mCarMode == CAR_MODE_AUTO;
-      }
-      mCar.Stop();
-    } else {
-      if( mCarMode == CAR_MODE_REMOTE ) {
-        if( 'L' == c ) {
-          mCar.TurnLeft(1);
-        } else if ('R' == c ) {
-          mCar.TurnRight(1);
-        } else if ('F' == c ) {
-          mCar.MoveForward();
-        } else if ('B' == c ) {
-          mCar.MoveBackward();
-        } else {
+        if( 'X' == c ) {
+          if ( mCarMode == CAR_MODE_AUTO ) {
+            mCarMode = CAR_MODE_REMOTE;
+          } else {
+            mCarMode = CAR_MODE_AUTO;
+          }
           mCar.Stop();
+        } else {
+          if( mCarMode == CAR_MODE_REMOTE ) {
+            if( 'L' == c ) {
+              mCar.TurnLeft(1);
+            } else if ('R' == c ) {
+              mCar.TurnRight(1);
+            } else if ('F' == c ) {
+              mCar.MoveForward();
+            } else if ('B' == c ) {
+              mCar.MoveBackward();
+            } else {
+              mCar.Stop();
+            }
+          }
         }
-      }
     }
     // Keep reading from Arduino Serial Monitor and send to HC-05
     /*

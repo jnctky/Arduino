@@ -6,7 +6,7 @@
 #define STEP_1DEGREE_MS  8
 
 #define A_SPEED  (150*0.75)
-#define B_SPEED  (170*0.75)
+#define B_SPEED  (155*0.75)
 
 CJCar::CJCar(int enA, int in1, int in2, int in3, int in4, int enB)
 {
