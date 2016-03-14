@@ -1,4 +1,5 @@
-//#define NOT_USE_ULTRARED_SENSOR
+#define NOT_USE_ULTRASONIC_SENSOR
+#define NOT_USE_ULTRARED_SENSOR
 //#define NOT_USE_BLUETOOTH_REMOTE
 
 #include <PT_timer.h>
@@ -24,10 +25,15 @@ static int angle[13] =
   105, 120, 135, 150, 165, 180
 };
 static int val[13];
-static int valLeft, valRight, valMid, valMid2;
+static int valLeft = 200;
+static int valRight = 200;
+static int valMid = 200;
+static int valMid2 = 200;
 
-#include "CJUltrasonicSensor.h"
-static CJUltrasonicSensor mDistanceSensorLeft, mDistanceSensorRight, mDistanceSensorMid;
+#ifndef NOT_USE_ULTRASONIC_SENSOR
+  #include "CJUltrasonicSensor.h"
+  static CJUltrasonicSensor mDistanceSensorLeft, mDistanceSensorRight, mDistanceSensorMid;
+#endif
 
 #ifndef NOT_USE_ULTRARED_SENSOR
   #include "CJUltraredSensor.h"
@@ -41,8 +47,8 @@ static CJCar mCar(11,12,13,8,9,10);
 #include "CJDebugger.h"
 
 #ifndef NOT_USE_BLUETOOTH_REMOTE
-#include "CJBluetooth.h"
-static CJBluetooth mBluetooth;
+  #include "CJBluetooth.h"
+  static CJBluetooth mBluetooth;
 #endif
 
 //#define LEDPIN 13  // LEDPIN is a constant 
@@ -78,10 +84,12 @@ void setup() {
   */
 
   //pinMode(LEDPIN, OUTPUT); // LED init
-  
+
+#ifndef NOT_USE_ULTRASONIC_SENSOR
   mDistanceSensorRight.setMode(2, A0, A1);
   mDistanceSensorMid.setMode(2, A2, 4 /*A3*/);
   mDistanceSensorLeft.setMode(2, A4, A5);
+#endif
 
   //未连接鼠标时不能初始化鼠标,否则会导致PS2库程序阻塞卡死
   //mouse.initialize();
@@ -117,7 +125,6 @@ static int ultrasonic_thread(struct pt *pt) {
 
     if (resetFlag) {
       //变向后首次测距前清楚旧数据
-      
       counter = 6;
       initFlag = false;
       resetFlag = false;
@@ -129,51 +136,19 @@ static int ultrasonic_thread(struct pt *pt) {
       myservo.write(angle[counter]);
       
     } else {
-#if 0 
-      //正常测距过程
-      val[counter] = mDistanceSensorMid.GetDistance(); //将超声波读取的距离值赋值给val
-      sprintf(s, "PT1 counter:%d - val[%d]:%d", counter, angle[counter], val[counter]);
-      
-     
-      if (val[6] < 4000/*150*/ && initFlag) {
-        //90正前方1.5米内有障碍时,减速并持续监测正前方
-        counter = 6;
-      } else {
-        //前方还有空间时,设为正常速度并持续监测左右
-
-        if (bFlag) {
-          //0-180度转向
-          if (counter < 12) {
-            counter++;
-          } else {
-            bFlag = false;
-            counter = 11;
-            bLeftFlag = true;
-          }
-        } else {
-          //180-0度反转向
-          if (counter > 0 ) {
-            counter--;
-          } else {
-            bFlag = true;
-            counter = 1;
-            bRightFlag = true;
-          }
-        }
-
-        if (bLeftFlag && bRightFlag) {
-          initFlag = true;
-        }
-     }
-     myservo.write(angle[counter]);
-#else
+#ifndef NOT_USE_ULTRASONIC_SENSOR
     valMid = mDistanceSensorMid.GetDistance(); //将超声波读取的距离值赋值给val
-    valMid2 = mDistanceSensorMid2.GetDistance(); //将超声波读取的距离值赋值给val
     valLeft = mDistanceSensorLeft.GetDistance(); //将超声波读取的距离值赋值给val
     valRight = mDistanceSensorRight.GetDistance(); //将超声波读取的距离值赋值给val
+#endif
+
+#ifndef NOT_USE_ULTRARED_SENSOR
+    valMid2 = mDistanceSensorMid2.GetDistance(); //将超声波读取的距离值赋值给val
+#endif
+
     sprintf(s, "PT1 - valMid:%d, valMid2:%d, valLeft:%d, valRight:%d", valMid, valMid2, valLeft, valRight);
     initFlag = true;
-#endif
+
     }
     
     //等待舵机旋转时间
